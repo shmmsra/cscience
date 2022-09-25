@@ -4,11 +4,15 @@
   "dependencies": {
     "canvas": "^2.10.1",
     "gifencoder": "^2.0.1",
+    "glob": "^8.0.3",
     "jimp": "^0.16.2",
     "png-file-stream": "^1.2.1",
     "pngjs": "^6.0.0",
     "shortid": "^2.2.16",
     "videoshow": "^0.1.12",
     "yargs": "^17.5.1"
+  },
+  "scripts": {
+    "moire": "node src/moire.js"
   }
 }
