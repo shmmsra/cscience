@@ -54,7 +54,7 @@ function createVerticalStripesMask(height, color, unit, count, loops, maskOutput
     for (let index = 0; index < loops; ++index) {
         mask.push(...Array(count - 1).fill(1).concat(0));
     }
-    console.info("createVerticalStripesMask: mask length:", mask.length, ", mask:", mask);
+    console.info("createVerticalStripesMask: mask length:", mask.length);
 
     const width = unit * mask.length;
     new Jimp(width, height, (err, image) => {
@@ -133,15 +133,18 @@ function createMoireImage(paths, unit, padding, background, moireOutputPath, cb)
 
             if (padding) {
                 const pad = Math.floor(width * padding / 2);
-                new Jimp(pad + width + pad, pad + height + pad, (err, paddedMoireImage) => {
+                console.info("createMoireImage: add padding on each side: pad:", pad);
+                new Jimp(pad + width + pad, pad + height + pad, background, (err, paddedMoireImage) => {
                     paddedMoireImage.blit(moireImage, pad, pad);
-                    moireImage = paddedMoireImage;
+                    paddedMoireImage.quality(100);
+                    paddedMoireImage.write(moireOutputPath);
+                    cb(null, paddedMoireImage);
                 });
+            } else {
+                moireImage.quality(100);
+                moireImage.write(moireOutputPath);
+                cb(null, moireImage);
             }
-
-            moireImage.quality(100);
-            moireImage.write(moireOutputPath);
-            cb(null, moireImage);
         });
     });
 }
@@ -187,12 +190,12 @@ function createAnimationFrames(moireImagePath, maskImagePath, unit, output, cb) 
     });
 }
 
-function createGif(width, height, source, output, cb) {
+function createGif(width, height, source, options, output, cb) {
     console.info("createGif: start: width:", width, ", height:", height, ", source:", source);
     const encoder = new GIFEncoder(width, height);
     encoder.setTransparent(0);
     const stream = pngFileStream(path.join(source, `frame-?????.png`))
-        .pipe(encoder.createWriteStream({ repeat: -1, delay: 20, quality: 5 }))
+        .pipe(encoder.createWriteStream(options))
         .pipe(fs.createWriteStream(output));
    
     stream.on('finish', function () {
@@ -214,13 +217,13 @@ function main() {
         const framesOutputPath = path.resolve(os.tmpdir(), 'moire-video-frames', shortid.generate());
         const animationOutputPath = path.join(argv.output, './animation.gif');
 
-        const unit = 8;
-        const padding = 0.2; // 10% margin on top and bottom
+        const unit = 4;
+        const padding = 0.4; // 30% margin on top and bottom
         createMoireImage(paths, unit, padding, argv.background, moireOutputPath, (err, moireImage) => {
             console.info("main: moire image generated:", moireOutputPath);
 
             const count = paths.length;
-            const loops = Math.floor((moireImage.bitmap.width / (unit * count))) * 3; // 100% margin on left and right
+            const loops = Math.floor((moireImage.bitmap.width / (unit * count))) * 2; // 100% margin on left and right
             const height = moireImage.bitmap.height;
             createVerticalStripesMask(height, argv.color, unit, count, loops, maskOutputPath, (err, maskImage) => {
                 console.info("main: mask image generated:", maskOutputPath);
@@ -228,7 +231,8 @@ function main() {
                 createAnimationFrames(moireOutputPath, maskOutputPath, 2, framesOutputPath, (err, width, height) => {
                     console.info("main: animation frames generated:", framesOutputPath);
 
-                    createGif(width, height, framesOutputPath, animationOutputPath, (err) => {
+                    const options = { repeat: -1, delay: 80, quality: 5 };
+                    createGif(width, height, framesOutputPath, options, animationOutputPath, (err) => {
                         console.info("main: gif generated:", animationOutputPath);
                     });
                 });
