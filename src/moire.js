@@ -9,6 +9,12 @@ const Jimp = require('jimp');
 const pngFileStream = require('png-file-stream');
 const GIFEncoder = require('gifencoder');
 
+// In portrait mode, size of A4 sheet in pixel assuming 300ppi
+const A4 = {
+    height: 3508,
+    width: 2480,
+};
+
 const argv = yargs(process.argv.slice(2))
     .usage('Usage: yarn <command> [options]')
     .command('moire', 'Create moire patten from input files').example('yarn moire')
@@ -98,19 +104,27 @@ function createMoireImage(paths, unit, padding, background, moireOutputPath, cb)
 
     Promise.all(paths.map((path) => Jimp.read(path))).then(images => {
         const count = images.length;
-        const width = images.reduce((previous, current) => {
+        let width = images.reduce((previous, current) => {
             return (previous > current.bitmap.width)
                 ? previous : current.bitmap.width
         }, 0);
-        const height = images.reduce((previous, current) => {
+        let height = images.reduce((previous, current) => {
             return (previous > current.bitmap.height)
                 ? previous : current.bitmap.height
         }, 0);
         console.info("createMoireImage: count:", count, ", width:", width, ", height:", height);
 
+        const scale = Math.floor(A4.width / 4) / width;
+        images.forEach(image => {
+            image.scale(scale);
+        });
+        width = Math.floor(width * scale);
+        height = Math.floor(height * scale);
+        console.info("createMoireImage: scale factor:", scale, ", width:", width, ", height:", height);
+
         new Jimp(width, height, background, (err, moireImage) => {
             images.forEach((image, position) => {
-                const loops = Math.floor((image.bitmap.width / (unit * count)));
+                const loops = Math.ceil((image.bitmap.width / (unit * count)));
 
                 for (let index = 0; index < loops; ++index) {
                     image.scan(
@@ -206,6 +220,22 @@ function createGif(width, height, source, options, output, cb) {
     });
 }
 
+function createA4Print(moireImage, maskImage, a4OutputPath, cb) {
+    new Jimp(A4.width, A4.height, '#FFFFFF', (err, a4Image) => {
+        const moireX = Math.floor((A4.width - moireImage.bitmap.width) / 2);
+        const moireY = 64;
+        a4Image.blit(moireImage, moireX, moireY);
+
+        const maskX = Math.floor((A4.width - maskImage.bitmap.width) / 2);
+        const maskY = moireY + moireImage.bitmap.height + moireY + 64;
+        a4Image.blit(maskImage, maskX, maskY);
+
+        a4Image.quality(100);
+        a4Image.write(a4OutputPath);
+        cb(null, a4Image);
+    });
+}
+
 function main() {
     console.info("main: start");
 
@@ -214,10 +244,11 @@ function main() {
 
         const moireOutputPath = path.join(argv.output, './moire.png');
         const maskOutputPath = path.join(argv.output, './mask.png');
+        const a4OutputPath = path.join(argv.output, './a4.png');
         const framesOutputPath = path.resolve(os.tmpdir(), 'moire-video-frames', shortid.generate());
         const animationOutputPath = path.join(argv.output, './animation.gif');
 
-        const unit = 4;
+        const unit = 16;
         const padding = 0.4; // 30% margin on top and bottom
         createMoireImage(paths, unit, padding, argv.background, moireOutputPath, (err, moireImage) => {
             console.info("main: moire image generated:", moireOutputPath);
@@ -228,12 +259,16 @@ function main() {
             createVerticalStripesMask(height, argv.color, unit, count, loops, maskOutputPath, (err, maskImage) => {
                 console.info("main: mask image generated:", maskOutputPath);
 
-                createAnimationFrames(moireOutputPath, maskOutputPath, 2, framesOutputPath, (err, width, height) => {
-                    console.info("main: animation frames generated:", framesOutputPath);
+                createA4Print(moireImage, maskImage, a4OutputPath, function(err) {
+                    console.info("main: A4 image generated:", a4OutputPath);
 
-                    const options = { repeat: -1, delay: 80, quality: 5 };
-                    createGif(width, height, framesOutputPath, options, animationOutputPath, (err) => {
-                        console.info("main: gif generated:", animationOutputPath);
+                    createAnimationFrames(moireOutputPath, maskOutputPath, 2, framesOutputPath, (err, width, height) => {
+                        console.info("main: animation frames generated:", framesOutputPath);
+
+                        const options = { repeat: -1, delay: 40, quality: 5 };
+                        createGif(width, height, framesOutputPath, options, animationOutputPath, (err) => {
+                            console.info("main: gif generated:", animationOutputPath);
+                        });
                     });
                 });
             });
